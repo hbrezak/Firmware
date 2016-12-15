@@ -78,6 +78,7 @@ set(config_module_list
 	examples/ekf_att_pos_estimator
 	examples/attitude_estimator_ekf
 	examples/fixedwing_control
+        examples/first_app_hrvoje
 
 	#
 	# Testing
