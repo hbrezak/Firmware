@@ -199,7 +199,19 @@ public:
 	 */
 	virtual void 			set_max_delta_out_once(float delta_out_max) {};
 
+	/**
+	 * @brief Set trim offset for this mixer
+	 *
+	 * @return the number of outputs this mixer feeds to
+	 */
 	virtual unsigned set_trim(float trim) = 0;
+
+	/*
+	 * @brief      Sets the thrust factor used to calculate mapping from desired thrust to pwm.
+	 *
+	 * @param[in]  val   The value
+	 */
+	virtual void 			set_thrust_factor(float val) {};
 
 protected:
 	/** client-supplied callback used when fetching control values */
@@ -249,6 +261,11 @@ protected:
 	 * @return			0 / OK if a line could be skipped, 1 else
 	 */
 	static const char 		*skipline(const char *buf, unsigned &buflen);
+
+	/**
+	 * Check wether the string is well formed and suitable for parsing
+	 */
+	static bool				string_well_formed(const char *buf, unsigned &buflen);
 
 private:
 
@@ -366,6 +383,13 @@ public:
 	{
 		return 0;
 	}
+
+	/**
+	 * @brief      Sets the thrust factor used to calculate mapping from desired thrust to pwm.
+	 *
+	 * @param[in]  val   The value
+	 */
+	virtual void	set_thrust_factor(float val);
 
 private:
 	Mixer				*_first;	/**< linked list of mixers */
@@ -514,13 +538,13 @@ private:
 typedef unsigned int MultirotorGeometryUnderlyingType;
 enum class MultirotorGeometry : MultirotorGeometryUnderlyingType;
 
-	/**
-	 * Multi-rotor mixer for pre-defined vehicle geometries.
-	 *
-	 * Collects four inputs (roll, pitch, yaw, thrust) and mixes them to
-	 * a set of outputs based on the configured geometry.
-	 */
-	class __EXPORT MultirotorMixer : public Mixer
+/**
+ * Multi-rotor mixer for pre-defined vehicle geometries.
+ *
+ * Collects four inputs (roll, pitch, yaw, thrust) and mixes them to
+ * a set of outputs based on the configured geometry.
+ */
+class __EXPORT MultirotorMixer : public Mixer
 {
 public:
 	/**
@@ -601,13 +625,21 @@ public:
 		return _rotor_count;
 	}
 
+	/**
+	 * @brief      Sets the thrust factor used to calculate mapping from desired thrust to pwm.
+	 *
+	 * @param[in]  val   The value
+	 */
+	virtual void			set_thrust_factor(float val) {_thrust_factor = val;}
+
 private:
 	float				_roll_scale;
 	float				_pitch_scale;
 	float				_yaw_scale;
 	float				_idle_speed;
-
 	float 				_delta_out_max;
+	float 				_thrust_factor;
+
 
 	orb_advert_t			_limits_pub;
 	multirotor_motor_limits_s 	_limits;

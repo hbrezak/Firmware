@@ -40,10 +40,11 @@
  *
  * @author Beat Kueng <beat-kueng@gmx.net>
  */
-
+#include <px4_config.h>
 #include <drivers/drv_rc_input.h>
 
 #include <systemlib/param/param.h>
+#include <mathlib/mathlib.h>
 
 #include <uORB/topics/rc_parameter_map.h>
 
@@ -83,9 +84,11 @@ struct Parameters {
 	int rc_map_acro_sw;
 	int rc_map_offboard_sw;
 	int rc_map_kill_sw;
+	int rc_map_arm_sw;
 	int rc_map_trans_sw;
 	int rc_map_gear_sw;
-
+	int rc_map_stab_sw;
+	int rc_map_man_sw;
 	int rc_map_flaps;
 
 	int rc_map_aux1;
@@ -108,8 +111,12 @@ struct Parameters {
 	float rc_acro_th;
 	float rc_offboard_th;
 	float rc_killswitch_th;
+	float rc_armswitch_th;
 	float rc_trans_th;
 	float rc_gear_th;
+	float rc_stab_th;
+	float rc_man_th;
+
 	bool rc_assist_inv;
 	bool rc_auto_inv;
 	bool rc_rattitude_inv;
@@ -119,8 +126,14 @@ struct Parameters {
 	bool rc_acro_inv;
 	bool rc_offboard_inv;
 	bool rc_killswitch_inv;
+	bool rc_armswitch_inv;
 	bool rc_trans_inv;
 	bool rc_gear_inv;
+	bool rc_stab_inv;
+	bool rc_man_inv;
+
+	float rc_flt_smp_rate;
+	float rc_flt_cutoff;
 
 	float battery_voltage_scaling;
 	float battery_current_scaling;
@@ -159,10 +172,12 @@ struct ParameterHandles {
 	param_t rc_map_acro_sw;
 	param_t rc_map_offboard_sw;
 	param_t rc_map_kill_sw;
+	param_t rc_map_arm_sw;
 	param_t rc_map_trans_sw;
 	param_t rc_map_gear_sw;
-
 	param_t rc_map_flaps;
+	param_t rc_map_stab_sw;
+	param_t rc_map_man_sw;
 
 	param_t rc_map_aux1;
 	param_t rc_map_aux2;
@@ -188,8 +203,14 @@ struct ParameterHandles {
 	param_t rc_acro_th;
 	param_t rc_offboard_th;
 	param_t rc_killswitch_th;
+	param_t rc_armswitch_th;
 	param_t rc_trans_th;
 	param_t rc_gear_th;
+	param_t rc_stab_th;
+	param_t rc_man_th;
+
+	param_t rc_flt_smp_rate;
+	param_t rc_flt_cutoff;
 
 	param_t battery_voltage_scaling;
 	param_t battery_current_scaling;

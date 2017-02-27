@@ -179,6 +179,21 @@ PARAM_DEFINE_FLOAT(COM_EF_TIME, 10.0f);
 PARAM_DEFINE_FLOAT(COM_RC_LOSS_T, 0.5f);
 
 /**
+ * RC stick override threshold
+ *
+ * If an RC stick is moved more than by this amount the system will interpret this as
+ * override request by the pilot.
+ *
+ * @group Commander
+ # @unit %
+ * @min 5
+ * @max 40
+ * @decimal 0
+ * @increment 0.05
+ */
+PARAM_DEFINE_FLOAT(COM_RC_STICK_OV, 12.0f);
+
+/**
  * Home set horizontal threshold
  *
  * The home position will be set if the estimated positioning accuracy is below the threshold.
@@ -278,6 +293,20 @@ PARAM_DEFINE_INT32(COM_DISARM_LAND, 0);
  * @value 1 Allow arming without GPS
  */
 PARAM_DEFINE_INT32(COM_ARM_WO_GPS, 1);
+
+/**
+ * Arm switch is only a button
+ *
+ * The default uses the arm switch as real switch.
+ * If parameter set button gets handled like stick arming.
+ *
+ * @group Commander
+ * @min 0
+ * @max 1
+ * @value 0 Arm switch is a switch that stays on when armed
+ * @value 1 Arm switch is a button that only triggers arming and disarming
+ */
+PARAM_DEFINE_INT32(COM_ARM_SWISBTN, 0);
 
 /**
  * Battery failsafe mode
@@ -567,4 +596,4 @@ PARAM_DEFINE_FLOAT(COM_ARM_IMU_ACC, 0.7f);
  * @decimal 3
  * @increment 0.01
  */
-PARAM_DEFINE_FLOAT(COM_ARM_IMU_GYR, 0.09f);
+PARAM_DEFINE_FLOAT(COM_ARM_IMU_GYR, 0.15f);

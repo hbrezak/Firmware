@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -61,7 +62,7 @@
 #define debug(fmt, args...)	do { } while(0)
 //#define debug(fmt, args...)	do { printf("[mixer] " fmt "\n", ##args); } while(0)
 //#include <debug.h>
-//#define debug(fmt, args...)	lowsyslog(fmt "\n", ##args)
+//#define debug(fmt, args...)	syslog(fmt "\n", ##args)
 
 /*
  * Clockwise: 1
@@ -91,6 +92,7 @@ MultirotorMixer::MultirotorMixer(ControlCallback control_cb,
 	_yaw_scale(yaw_scale),
 	_idle_speed(-1.0f + idle_speed * 2.0f),	/* shift to output range here to avoid runtime calculation */
 	_delta_out_max(0.0f),
+	_thrust_factor(0.0f),
 	_limits_pub(),
 	_rotor_count(_config_rotor_count[(MultirotorGeometryUnderlyingType)geometry]),
 	_rotors(_config_index[(MultirotorGeometryUnderlyingType)geometry]),
@@ -114,22 +116,9 @@ MultirotorMixer::from_text(Mixer::ControlCallback control_cb, uintptr_t cb_handl
 	int s[4];
 	int used;
 
-	/* enforce that the mixer ends with space or a new line */
-	for (int i = buflen - 1; i >= 0; i--) {
-		if (buf[i] == '\0') {
-			continue;
-		}
-
-		/* require a space or newline at the end of the buffer, fail on printable chars */
-		if (buf[i] == ' ' || buf[i] == '\n' || buf[i] == '\r') {
-			/* found a line ending or space, so no split symbols / numbers. good. */
-			break;
-
-		} else {
-			debug("simple parser rejected: No newline / space at end of buf. (#%d/%d: 0x%02x)", i, buflen - 1, buf[i]);
-			return nullptr;
-		}
-
+	/* enforce that the mixer ends with a new line */
+	if (!string_well_formed(buf, buflen)) {
+		return nullptr;
 	}
 
 	if (sscanf(buf, "R: %7s %d %d %d %d%n", geomname, &s[0], &s[1], &s[2], &s[3], &used) != 5) {
@@ -165,6 +154,9 @@ MultirotorMixer::from_text(Mixer::ControlCallback control_cb, uintptr_t cb_handl
 
 	} else if (!strcmp(geomname, "4w")) {
 		geometry = MultirotorGeometry::QUAD_WIDE;
+
+	} else if (!strcmp(geomname, "4s")) {
+		geometry = MultirotorGeometry::QUAD_S250AQ;
 
 	} else if (!strcmp(geomname, "4dc")) {
 		geometry = MultirotorGeometry::QUAD_DEADCAT;
@@ -317,6 +309,10 @@ MultirotorMixer::mix(float *outputs, unsigned space, uint16_t *status_reg)
 		_saturation_status.flags.motor_pos = true;
 	}
 
+	// Thrust reduction is used to reduce the collective thrust if we hit
+	// the upper throttle limit
+	float thrust_reduction = 0.0f;
+
 	// mix again but now with thrust boost, scale roll/pitch and also add yaw
 	for (unsigned i = 0; i < _rotor_count; i++) {
 		float out = (roll * _rotors[i].roll_scale +
@@ -338,8 +334,9 @@ MultirotorMixer::mix(float *outputs, unsigned space, uint16_t *status_reg)
 
 		} else if (out > 1.0f) {
 			// allow to reduce thrust to get some yaw response
-			float thrust_reduction = fminf(0.15f, out - 1.0f);
-			thrust -= thrust_reduction;
+			float prop_reduction = fminf(0.15f, out - 1.0f);
+			// keep the maximum requested reduction
+			thrust_reduction = fmaxf(thrust_reduction, prop_reduction);
 
 			if (fabsf(_rotors[i].yaw_scale) <= FLT_EPSILON) {
 				yaw = 0.0f;
@@ -351,12 +348,27 @@ MultirotorMixer::mix(float *outputs, unsigned space, uint16_t *status_reg)
 		}
 	}
 
-	/* add yaw and scale outputs to range idle_speed...1 */
+	// Apply collective thrust reduction, the maximum for one prop
+	thrust -= thrust_reduction;
+
+	// add yaw and scale outputs to range idle_speed...1
 	for (unsigned i = 0; i < _rotor_count; i++) {
 		outputs[i] = (roll * _rotors[i].roll_scale +
 			      pitch * _rotors[i].pitch_scale) * roll_pitch_scale +
 			     yaw * _rotors[i].yaw_scale +
 			     thrust + boost;
+
+		/*
+			implement simple model for static relationship between applied motor pwm and motor thrust
+			model: thrust = (1 - _thrust_factor) * PWM + _thrust_factor * PWM^2
+			this model assumes normalized input / output in the range [0,1] so this is the right place
+			to do it as at this stage the outputs are in that range.
+		 */
+		if (_thrust_factor > 0.0f) {
+			outputs[i] = -(1.0f - _thrust_factor) / (2.0f * _thrust_factor) + sqrtf((1.0f - _thrust_factor) *
+					(1.0f - _thrust_factor) / (4.0f * _thrust_factor * _thrust_factor) + (outputs[i] < 0.0f ? 0.0f : outputs[i] /
+							_thrust_factor));
+		}
 
 		outputs[i] = constrain(_idle_speed + (outputs[i] * (1.0f - _idle_speed)), _idle_speed, 1.0f);
 
@@ -402,7 +414,7 @@ MultirotorMixer::mix(float *outputs, unsigned space, uint16_t *status_reg)
 	_delta_out_max = 0.0f;
 
 	// Notify saturation status
-	if (status_reg != NULL) {
+	if (status_reg != nullptr) {
 		(*status_reg) = _saturation_status.value;
 	}
 

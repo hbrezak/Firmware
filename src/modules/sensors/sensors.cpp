@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2016 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2017 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -283,6 +283,9 @@ Sensors::Sensors() :
 	memset(&_parameters, 0, sizeof(_parameters));
 
 	initialize_parameter_handles(_parameter_handles);
+
+	_airspeed_validator.set_timeout(300000);
+	_airspeed_validator.set_equal_value_threshold(100);
 }
 
 Sensors::~Sensors()
@@ -378,24 +381,22 @@ Sensors::diff_pres_poll(struct sensor_combined_s &raw)
 		_airspeed.timestamp = _diff_pres.timestamp;
 
 		/* push data into validator */
-		_airspeed_validator.put(_airspeed.timestamp, _diff_pres.differential_pressure_raw_pa, _diff_pres.error_count, 100);
+		_airspeed_validator.put(_airspeed.timestamp, _diff_pres.differential_pressure_raw_pa, _diff_pres.error_count,
+					ORB_PRIO_HIGH);
 
-#ifdef __PX4_POSIX
-		_airspeed.confidence = 1.0f;
-#else
 		_airspeed.confidence = _airspeed_validator.confidence(hrt_absolute_time());
-#endif
 
 		/* don't risk to feed negative airspeed into the system */
 		_airspeed.indicated_airspeed_m_s = math::max(0.0f,
 						   calc_indicated_airspeed(_diff_pres.differential_pressure_filtered_pa));
 
 		_airspeed.true_airspeed_m_s = math::max(0.0f,
-							calc_true_airspeed(_diff_pres.differential_pressure_filtered_pa + _voted_sensors_update.baro_pressure() * 1e2f,
-									_voted_sensors_update.baro_pressure() * 1e2f, air_temperature_celsius));
+							calc_true_airspeed(_diff_pres.differential_pressure_filtered_pa + _voted_sensors_update.baro_pressure(),
+									_voted_sensors_update.baro_pressure(), air_temperature_celsius));
+
 		_airspeed.true_airspeed_unfiltered_m_s = math::max(0.0f,
-				calc_true_airspeed(_diff_pres.differential_pressure_raw_pa + _voted_sensors_update.baro_pressure() * 1e2f,
-						   _voted_sensors_update.baro_pressure() * 1e2f, air_temperature_celsius));
+				calc_true_airspeed(_diff_pres.differential_pressure_raw_pa + _voted_sensors_update.baro_pressure(),
+						   _voted_sensors_update.baro_pressure(), air_temperature_celsius));
 
 		_airspeed.air_temperature_celsius = air_temperature_celsius;
 		_airspeed.differential_pressure_filtered_pa = _diff_pres.differential_pressure_filtered_pa;
@@ -580,14 +581,16 @@ Sensors::task_main()
 		PX4_ERR("sensor initialization failed");
 	}
 
-	/* (re)load params and calibration */
-	parameter_update_poll(true);
-
 	struct sensor_combined_s raw = {};
-	_rc_update.init();
-	_voted_sensors_update.init(raw);
 
 	struct sensor_preflight_s preflt = {};
+
+	_rc_update.init();
+
+	_voted_sensors_update.init(raw);
+
+	/* (re)load params and calibration */
+	parameter_update_poll(true);
 
 	/*
 	 * do subscriptions
@@ -732,7 +735,7 @@ Sensors::start()
 	_sensors_task = px4_task_spawn_cmd("sensors",
 					   SCHED_DEFAULT,
 					   SCHED_PRIORITY_MAX - 5,
-					   1700,
+					   2000,
 					   (px4_main_t)&Sensors::task_main_trampoline,
 					   nullptr);
 

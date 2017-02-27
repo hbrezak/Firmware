@@ -52,8 +52,13 @@ else
 	fi
 fi
 
-if adc start
+if ver hwcmp AEROFC_V1
 then
+	# Aero FC uses separate driver
+else
+	if adc start
+	then
+	fi
 fi
 
 if ver hwcmp AUAV_X21
@@ -65,6 +70,11 @@ then
 
 	# I2C bus
 	if lis3mdl start
+	then
+	fi
+
+	# Internal SPI bus ICM-20602-G is rotated 90 deg yaw
+	if mpu6000 -R 2 -T 20602 start
 	then
 	fi
 
@@ -188,6 +198,11 @@ then
 	then
 	fi
 
+	# Internal SPI bus ICM-20602-G is rotated 90 deg yaw
+	if mpu6000 -R 2 -T 20602 start
+	then
+	fi
+
 	# Start either MPU9250 or BMI160. They are both connected to the same SPI bus and use the same
 	# chip select pin. There are different boards with either one of them and the WHO_AM_I register
 	# will prevent the incorrect driver from a successful initialization.
@@ -244,7 +259,7 @@ then
 	fi
 
 	# Internal I2C bus
-	if hmc5883 -C -T -I -R 8 start
+	if hmc5883 -C -T -I -R 12 start
 	then
 	fi
 
@@ -268,7 +283,7 @@ then
 	then
 	fi
 
-	# I2C bypass of mpu 
+	# I2C bypass of mpu
 	if lps25h start
 	then
 	fi
@@ -276,16 +291,11 @@ fi
 
 if ver hwcmp AEROFC_V1
 then
-	if ms5611 start
+	if ms5611 -T 0 start
 	then
 	fi
 
 	if mpu6500 -R 14 start
-	then
-	fi
-
-	# Internal compass
-	if hmc5883 -I -R 4 start
 	then
 	fi
 
@@ -294,7 +304,59 @@ then
 	then
 	fi
 
-	if ist8310 -C -b 1 -R 8 start
+	if ist8310 -C -b 1 -R 4 start
+	then
+	fi
+
+	if aerofc_adc start
+	then
+	fi
+fi
+
+if ver hwcmp PX4FMU_V4PRO
+then
+	# Internal SPI bus ICM-20608-G
+	if mpu6000 -R 2 -T 20608 start
+	then
+	fi
+
+	# Internal SPI bus mpu9250
+	if mpu9250 -R 2 start
+	then
+	fi
+
+	# Internal SPI bus
+	if lis3mdl -R 0 start
+	then
+	fi
+	
+	# Possible external compasses
+	if hmc5883 -X start
+	then
+	fi
+
+fi
+
+if ver hwcmp PX4FMU_V5
+then
+	# Internal SPI bus ICM-20602
+	if mpu6000 -R 8 -s -T 20602 start
+	then
+	fi
+
+	# Internal SPI bus ICM-20689
+	if mpu6000 -R 8 -z -T 20689 start
+	then
+	fi
+
+	# Internal SPI bus BMI055
+# Place holder Need BMI055 Support added
+	if bmi055 -R 2 start
+	then
+	fi
+
+	# Possible external compasses
+	if hmc5883 -X start
 	then
 	fi
 fi
@@ -309,10 +371,6 @@ else
 		then
 		fi
 	fi
-fi
-
-if sf1xx start
-then
 fi
 
 # Wait 20 ms for sensors (because we need to wait for the HRT and work queue callbacks to fire)
