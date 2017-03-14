@@ -83,6 +83,8 @@ set(config_module_list
 	modules/unit_test
 	modules/uORB/uORB_tests
 	systemcmds/tests
+	
+	modules/pid_control_module
 
 	#
 	# General system control
