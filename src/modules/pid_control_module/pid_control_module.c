@@ -5,139 +5,88 @@
  * @author Hrvoje Brezak <hrvoje.brezak@gmail.com>
  */
 
-#include <px4_config.h>     // Configuration flags used in code; either set NUTTX headers or configure PX4_POSIX for run
-#include <px4_tasks.h>      // Handle task starting, scheduling and operation
-#include <px4_posix.h>      // Include POSIX-like (UNIX-like) functions for virtual character devices
-#include <unistd.h>         // POSIX UNIversal STanDard, define UNIX standard key words
-#include <stdio.h>          // C/C++ standard input-output library
-#include <poll.h>           // linux-based function for reading output readiness
+#include <px4_config.h> // Configuration flags used in code; either set NUTTX headers or configure PX4_POSIX for run
+#include <px4_tasks.h>  // Handle task starting, scheduling and operation
+#include <px4_posix.h>  // Include POSIX-like (UNIX-like) functions for virtual character devices
+#include <unistd.h>     // POSIX UNIversal STanDard, define UNIX standard key words
+#include <stdio.h>      // C/C++ standard input-output library
+#include <poll.h>       // linux-based function for reading output readiness
 #include <string.h>
 
-#include <uORB/uORB.h>      // API for lightweight micro Object Request Broker (uORB) - handles communication between modules
+#include <uORB/uORB.h> // API for lightweight micro Object Request Broker (uORB) - handles communication between modules
+
 #include <uORB/topics/sensor_combined.h>
 #include <uORB/topics/vehicle_attitude.h>
-#include <uORB/topics/rc_channels.h>
-#include <uORB/topics/actuator_direct.h>
-
-#include <uORB/topics/actuator_controls.h> // Actuator control topics - mixer inputs.
-                                           // Values published to these topics are the outputs of the vehicle control system, and are expected to be mixed and used to drive the actuators
-                                           // (servos, speed controls, etc.) that operate the vehicle. Each topic can be published by a single controller.
-
-#include <uORB/topics/control_state.h> // Contains info about vehicle position, velocity, acceleration, attitude quaternion, angular rates
 
 __EXPORT int pid_control_module_main(int argc, char *argv[]);
-
 
 int pid_control_module_main(int argc, char *argv[])
 {
     PX4_INFO("Hello sky!");
 
-    int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined));
-    int rc_channels_fd = orb_subscribe(ORB_ID(rc_channels));
-
-    int _ctrl_state_fd = orb_subscribe(ORB_ID(control_state));
-
-
-    // limit the update rate to 5Hz
+    /* subscribe to sensor_combined topic */
+    int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined)); // sensor_subscription_filedescriptor
+                                                                // this is a topic handle
+    /* limit the update rate to 5 Hz */
     orb_set_interval(sensor_sub_fd, 200);
-    orb_set_interval(rc_channels_fd, 200);
 
-    orb_set_interval(_ctrl_state_fd, 200);
-
+    /* advertise attitude topic */
     struct vehicle_attitude_s att;
-    struct actuator_direct_s act_dir;
-    struct actuator_controls_s _actuators;
-
-    struct control_state_s _ctrl_state;
-
-    // Declare things in which I plan to publish
     memset(&att, 0, sizeof(att));
-    memset(&act_dir, 0, sizeof(act_dir));
-//    orb_advert_t att_pub = orb_advertise(ORB_ID(vehicle_attitude), &att);
-    orb_advert_t act_dir_pub = orb_advertise(ORB_ID(actuator_direct), &act_dir);
 
-    memset(&_actuators, 0, sizeof(_actuators));
-    orb_advert_t _actuators_pub = orb_advertise(ORB_ID(actuator_controls), &_actuators);
+    orb_advert_t att_pub_fd = orb_advertise(ORB_ID(vehicle_attitude), &att);
 
-    // Define file descriptor structure
+    // file-descriptor-struct[]
     px4_pollfd_struct_t fds[] = {
-        {   .fd = sensor_sub_fd,    .events = POLLIN},
-        {   .fd = rc_channels_fd,   .events = POLLIN},
-        {   .fd = _ctrl_state_fd,   .events = POLLIN},
+        {   .fd = sensor_sub_fd,    .events = POLLIN    },
+      /*{   .fd = other_sub_fd,     .events = POLLIN    }, */
     };
 
+    int error_counter = 0;
 
-    while (true) {
+    for (int i = 0; i < 5; i++) {
+        /* wait for sensor update of 1 file descriptor for 1000 ms */
+        int poll_ret = px4_poll(fds, 1, 1000);
 
-        // wait for sensor update of 1 file descriptor for 1000 ms ( 1 second)
-        int poll_ret = px4_poll(fds, 3, 1000);
-
+        /* handle the poll result */
         if (poll_ret == 0) {
-            // none of our providers is giving us data
-            PX4_ERR ("Got no data within a second");
-
+            /* this means none of our providers is giving us data */
+            PX4_ERR("No new data!");
         } else if (poll_ret < 0) {
-            // this is seriously bad
-            PX4_ERR("ERROR return value from poll(): %d", poll_ret);
-
+            /* this is seriously bad - should be an emergency */
+            if (error_counter < 10 || error_counter % 50 == 0){
+                /* use a counter to prevent flooding (and slowing us down) */
+                // warn about error 10 times at first occurence and then every 50th time
+                PX4_ERR("ERROR return value from poll(): %d", poll_ret);
+            }
+            error_counter++;
         } else {
             if (fds[0].revents & POLLIN) {
-                // obtain data for the first file descriptor
+                /* obtained data for the first file desctriptor */
                 struct sensor_combined_s raw;
-                // copy sensor raw data into local buffer
+                /* copy sensors raw data into local buffer */
                 orb_copy(ORB_ID(sensor_combined), sensor_sub_fd, &raw);
-
-//                PX4_INFO("Accelerometer: \t%8.4f \t%8.4f \t%8.4f",
-//                         (double)raw.accelerometer_m_s2[0],
-//                         (double)raw.accelerometer_m_s2[1],
-//                         (double)raw.accelerometer_m_s2[2]);
-
-
-//            att.rollspeed = (double)raw.accelerometer_m_s2[0];
-//            att.pitchspeed = (double)raw.accelerometer_m_s2[1];
-//            att.yawspeed = (double)raw.accelerometer_m_s2[2];
-//            orb_publish(ORB_ID(vehicle_attitude), att_pub, &att);
-
-
-                act_dir.values[0] = 5;
-                act_dir.values[2] = 10;
-                orb_publish(ORB_ID(actuator_direct), &act_dir_pub, &act_dir);
+                PX4_INFO("Accelerometer: \t%8.4f\t%8.4f\t%8.4f",
+                         (double)raw.accelerometer_m_s2[0],
+                         (double)raw.accelerometer_m_s2[1],
+                         (double)raw.accelerometer_m_s2[2]);
             }
 
-            if (fds[1].revents & POLLIN) {
-                struct rc_channels_s rc_raw;
-                orb_copy(ORB_ID(rc_channels), rc_channels_fd, &rc_raw);
-
-                PX4_INFO("Sticks: throttle \t%8.4f, roll \t%8.4f, pitch \t%8.4f, yaw \t%8.4f",
-                        (double)rc_raw.channels[2],
-                        (double)rc_raw.channels[0],
-                        (double)rc_raw.channels[1],
-                        (double)rc_raw.channels[3]);
-            }
-
-            if (fds[2].revents & POLLIN) {
-                orb_copy(ORB_ID(control_state), _ctrl_state_fd, &_ctrl_state);
-
-                PX4_INFO("Roll rate: %8.4f, pitch rate: %8.4f, yaw rate: %8.4f",
-                         (double)_ctrl_state.roll_rate,
-                         (double)_ctrl_state.pitch_rate,
-                         (double)_ctrl_state.yaw_rate);
-            }
+            /* more could be here:
+             * if (fds[1].revents & POLLIN) {}
+             */
         }
 
-        // Publish to actuators
-        _actuators.control[0] = 0; // INDEX_ROLL
-        _actuators.control[1] = 0; // INDEX_PITCH
-        _actuators.control[2] = 0; // INDEX_YAW
-        _actuators.control[3] = 0; // INDEX_THROTTLE
+        /* set att and publish this information for other apps */
+        att.rollspeed = 100;
+        att.pitchspeed = 1000;
+        att.yawspeed = 1800;
 
-        orb_publish(ORB_ID(actuator_controls), &_actuators_pub, &_actuators);
-
-
-
-
-
+        orb_publish(ORB_ID(vehicle_attitude), att_pub_fd, &att);
     }
 
-    return OK;
+    PX4_INFO("Exiting...");
+
+    return 0;
+
 }
