@@ -35,7 +35,7 @@ px4_add_module(
 	MAIN pid_control_module
 	STACK_MAIN 2000
 	SRCS
-		pid_control_module.c
+		pid_control_module.cpp
 	DEPENDS
 		platforms__common
 	)

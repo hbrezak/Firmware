@@ -12,46 +12,62 @@
 #include <stdio.h>      // C/C++ standard input-output library
 #include <poll.h>       // linux-based function for reading output readiness
 #include <string.h>
+#include <math.h>
+#include <mathlib/mathlib.h>
+#include <drivers/drv_hrt.h>
 
 #include <uORB/uORB.h> // API for lightweight micro Object Request Broker (uORB) - handles communication between modules
 
-#include <uORB/topics/sensor_combined.h>
-#include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/control_state.h>
 #include <uORB/topics/actuator_controls.h>
 
-__EXPORT int pid_control_module_main(int argc, char *argv[]);
+
+extern "C" __EXPORT int pid_control_module_main(int argc, char *argv[]);
 
 int pid_control_module_main(int argc, char *argv[])
 {
     PX4_INFO("Hello sky!");
 
+    static uint64_t last_run = 0;
+    float dt = (hrt_absolute_time() - last_run) / 1000000.0f;
+    last_run = hrt_absolute_time();
+
+    /* guard against too small (< 2ms) and too large (> 20ms) dt's */
+    if (dt < 0.002f) {
+        dt = 0.002f;
+
+    } else if (dt > 0.02f) {
+        dt = 0.02f;
+    }
+
     /* subscribe to sensor_combined topic */
-    int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined)); // sensor_subscription_filedescriptor
-                                                                // this is a topic handle
     int manual_sub_fd = orb_subscribe(ORB_ID(manual_control_setpoint));
     int state_sub_fd = orb_subscribe(ORB_ID(control_state));
     int motor_sub_fd = orb_subscribe(ORB_ID(actuator_controls_0));
 
     /* limit the update rate to 5 Hz */
-    orb_set_interval(sensor_sub_fd, 200);
     orb_set_interval(state_sub_fd, 200);
     orb_set_interval(motor_sub_fd, 200);
 
     /* advertise attitude topic */
-    struct vehicle_attitude_s att;
+
     struct actuator_controls_s motor_output;
 
-    memset(&att, 0, sizeof(att));
+
     memset(&motor_output, 0, sizeof(motor_output));
 
-    orb_advert_t att_pub_fd = orb_advertise(ORB_ID(vehicle_attitude), &att);
+
     orb_advert_t motor_output_pub_fd = orb_advertise(ORB_ID(actuator_controls_0), &motor_output);
+
+    math::Vector<3> rates_previous;
+    math::Vector<3> rates_integral;
+    rates_previous.zero();
+    rates_integral.zero();
+
 
     // file-descriptor-struct[]
     px4_pollfd_struct_t fds[] = {
-        {   .fd = sensor_sub_fd,    .events = POLLIN    },
         {   .fd = manual_sub_fd,    .events = POLLIN    },
         {   .fd = state_sub_fd,     .events = POLLIN    },
         {   .fd = motor_sub_fd,     .events = POLLIN    },
@@ -62,7 +78,7 @@ int pid_control_module_main(int argc, char *argv[])
 
     while (true) {
         /* wait for sensor update of 1 file descriptor for 1000 ms */
-        int poll_ret = px4_poll(fds, 4, 1000);
+        int poll_ret = px4_poll(fds, 3, 1000);
 
         /* handle the poll result */
         if (poll_ret == 0) {
@@ -77,37 +93,79 @@ int pid_control_module_main(int argc, char *argv[])
             }
             error_counter++;
         } else {
-            if (fds[0].revents & POLLIN) {
-                /* obtained data for the first file desctriptor */
-                struct sensor_combined_s raw;
-                /* copy sensors raw data into local buffer */
-                orb_copy(ORB_ID(sensor_combined), sensor_sub_fd, &raw);
-                /* PX4_INFO("Accelerometer: \t%8.4f\t%8.4f\t%8.4f",
-                         (double)raw.accelerometer_m_s2[0],
-                         (double)raw.accelerometer_m_s2[1],
-                         (double)raw.accelerometer_m_s2[2]); */
-            }
-            if (fds[1].revents & POLLIN) {
+
+            if ((fds[0].revents & POLLIN) || (fds[1].revents & POLLIN)) {
                 struct manual_control_setpoint_s manual;
+                struct control_state_s state;
 
                 orb_copy(ORB_ID(manual_control_setpoint), manual_sub_fd, &manual);
                 /*PX4_INFO("RC controls: \t%8.4f\t%8.4f\t%8.4f\t%8.4f",
                          (double)manual.x,
                          (double)manual.y,
                          (double)manual.z,
-                         (double)manual.r);*/
-
-            }
-            if (fds[2].revents & POLLIN) {
-                struct control_state_s state;
+                         (double)manual.r);*/                
 
                 orb_copy(ORB_ID(control_state), state_sub_fd, &state);
                /* PX4_INFO("Rates: \t%8.4f\t%8.4f\t%8.4f",
                          (double)state.roll_rate,
                          (double)state.pitch_rate,
                          (double)state.yaw_rate); */
+
+
+
+                math::Vector<3> k_P;
+                k_P(0) = 0.15f;
+                k_P(1) = 0.15f;
+                k_P(2) = 0.2f;
+
+                math::Vector<3> k_D;
+                k_D(0) = 0.003f;
+                k_D(1) = 0.003f;
+                k_D(2) = 0.0f;
+
+                math::Vector<3> k_I;
+                k_I(0) = 0.05f;
+                k_I(1) = 0.05f;
+                k_I(2) = 0.1f;
+
+
+                math::Vector<3> rates_setpoint;
+                rates_setpoint(0) = manual.y;
+                rates_setpoint(1) = -manual.x;
+                rates_setpoint(2) = manual.r;
+
+                float thrust_setpoint = manual.z;
+
+                math::Vector<3> current_rates;
+                current_rates(0) = state.roll_rate;
+                current_rates(1) = state.pitch_rate;
+                current_rates(2) = state.yaw_rate;
+
+                math::Vector<3> rates_error = rates_setpoint - current_rates;
+                math::Vector<3> attitude_control = k_P.emult(rates_error) + k_D.emult(rates_previous - current_rates) / dt + k_I.emult(rates_integral);
+
+
+                rates_previous = current_rates;
+
+                for (int i = 0; i < 3; i++) {
+                    float integral = rates_integral(i) + k_I(i) * rates_error(i) * dt;
+                    rates_integral(i) = integral;
+                }
+
+                PX4_INFO("Output: \t%8.4f\t%8.4f\t%8.4f",
+                         (double)attitude_control(0),
+                         (double)attitude_control(1),
+                         (double)attitude_control(2));
+
+                motor_output.control[0] = attitude_control(0);
+                motor_output.control[1] = attitude_control(1);
+                motor_output.control[2] = attitude_control(2);
+                motor_output.control[3] = thrust_setpoint;
+
+               orb_publish(ORB_ID(actuator_controls_0), motor_output_pub_fd, &motor_output);
+
             }
-            if (fds[3].revents & POLLIN) {
+            if (fds[2].revents & POLLIN) {
                 struct actuator_controls_s motors;
 
                 orb_copy(ORB_ID(actuator_controls_0), motor_sub_fd, &motors);
@@ -121,18 +179,10 @@ int pid_control_module_main(int argc, char *argv[])
             /* more could be here:
              * if (fds[1].revents & POLLIN) {}
              */
+
+
+
         }
-
-        /* set att and publish this information for other apps */
-        att.rollspeed = 100;
-        att.pitchspeed = 1000;
-        att.yawspeed = 1800;
-
-        orb_publish(ORB_ID(vehicle_attitude), att_pub_fd, &att);
-
-        motor_output.control[3] = 0.9;
-
-       orb_publish(ORB_ID(actuator_controls_0), motor_output_pub_fd, &motor_output);
     }
 
     PX4_INFO("Exiting...");
