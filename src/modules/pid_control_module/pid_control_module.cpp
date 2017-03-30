@@ -54,7 +54,6 @@ int pid_control_module_main(int argc, char *argv[])
 
     struct actuator_controls_s motor_output;
 
-
     memset(&motor_output, 0, sizeof(motor_output));
 
 
@@ -119,14 +118,14 @@ int pid_control_module_main(int argc, char *argv[])
                 k_P(2) = 0.2f;
 
                 math::Vector<3> k_D;
-                k_D(0) = 0.003f;
-                k_D(1) = 0.003f;
+                k_D(0) = 0.0f;
+                k_D(1) = 0.0f;
                 k_D(2) = 0.0f;
 
                 math::Vector<3> k_I;
-                k_I(0) = 0.05f;
-                k_I(1) = 0.05f;
-                k_I(2) = 0.1f;
+                k_I(0) = 0.0f;
+                k_I(1) = 0.0f;
+                k_I(2) = 0.0f;
 
 
                 math::Vector<3> rates_setpoint;
@@ -152,15 +151,15 @@ int pid_control_module_main(int argc, char *argv[])
                     rates_integral(i) = integral;
                 }
 
-                PX4_INFO("Output: \t%8.4f\t%8.4f\t%8.4f",
-                         (double)attitude_control(0),
-                         (double)attitude_control(1),
-                         (double)attitude_control(2));
+                // PX4_INFO("Output: \t%8.4f\t%8.4f\t%8.4f",
+                //         (double)attitude_control(0),
+                //         (double)attitude_control(1),
+                //         (double)attitude_control(2));
 
-                motor_output.control[0] = attitude_control(0);
-                motor_output.control[1] = attitude_control(1);
-                motor_output.control[2] = attitude_control(2);
-                motor_output.control[3] = thrust_setpoint;
+                motor_output.control[0] = (PX4_ISFINITE(attitude_control(0))) ? attitude_control(0) : 0.0f;
+                motor_output.control[1] = (PX4_ISFINITE(attitude_control(1))) ? attitude_control(1) : 0.0f;
+                motor_output.control[2] = (PX4_ISFINITE(attitude_control(2))) ? attitude_control(2) : 0.0f;
+                motor_output.control[3] = (PX4_ISFINITE(thrust_setpoint)) ? thrust_setpoint : 0.0f;
 
                orb_publish(ORB_ID(actuator_controls_0), motor_output_pub_fd, &motor_output);
 
@@ -169,11 +168,11 @@ int pid_control_module_main(int argc, char *argv[])
                 struct actuator_controls_s motors;
 
                 orb_copy(ORB_ID(actuator_controls_0), motor_sub_fd, &motors);
-                PX4_INFO("Motors: \t%8.4f\t%8.4f\t%8.4f\t%8.4f",
-                         (double)motors.control[0],
-                        (double)motors.control[1],
-                        (double)motors.control[2],
-                        (double)motors.control[3]);
+                //PX4_INFO("Motors: \t%8.4f\t%8.4f\t%8.4f\t%8.4f",
+                //         (double)motors.control[0],
+                //        (double)motors.control[1],
+                //        (double)motors.control[2],
+                //        (double)motors.control[3]);
             }
 
             /* more could be here:
